@@ -16,18 +16,20 @@
 
 #include "DonNavigatorInterface.generated.h"
 
-UINTERFACE()
-class DONAINAVIGATION_API UDonNavigator : public UInterface
+UINTERFACE(MinimalAPI)
+class UDonNavigator : public UInterface
 {
-	GENERATED_UINTERFACE_BODY()
+	GENERATED_BODY()
 };
 
 struct FDonVoxelCollisionProfile;
 
 class DONAINAVIGATION_API IDonNavigator
 {
-	GENERATED_IINTERFACE_BODY()
-	
+	GENERATED_BODY()
+
+public:
+
 	// TBD - earlier this was meant to enforce that users of the API would provide minimum metadata for navigators which the system would then use in its calculations, 
 	// but this has since been sidelined to make it easier for new consumers of the system to rapidly get going.
 
