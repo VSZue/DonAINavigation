@@ -61,18 +61,25 @@ struct FBT_FlyToTarget
 
 	FVector TargetLocation;
 
+	AActor* TargetActor;
+
+	/* Whether this is a repath due to an actor target having moved */
+	bool isMovingTargetRepath = false;
+
 	FDelegateHandle BBObserverDelegateHandle;
 
 	uint32 bTargetLocationChanged : 1;
 
 	void Reset()
 	{	
+		isMovingTargetRepath = false;
 		solutionTraversalIndex = 0;
 		QueryResults = FDoNNavigationQueryData();
 		QueryParams = FDoNNavigationQueryParams();
 		Metadata = FBT_FlyToTarget_Metadata();
 		bSolutionInvalidatedByDynamicObstacle = false;
 		bTargetLocationChanged = false;
+		TargetActor = nullptr;
 	}
 };
 
@@ -105,7 +112,7 @@ public:
 
 	// Behavior Tree Input:
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "DoN Navigation")
-	FBlackboardKeySelector FlightLocationKey;	
+	FBlackboardKeySelector FlightGoalKey;
 
 	/* Optional: Useful in somecases where you want failure or success of a task to automatically update a particular blackboard key*/
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "DoN Navigation")
@@ -159,11 +166,13 @@ protected:
 
 	FBT_FlyToTarget* TaskMemoryFromGenericPayload(void* GenericPayload);
 
-	EBTNodeResult::Type SchedulePathfindingRequest(UBehaviorTreeComponent& OwnerComp, uint8* NodeMemory);	
+	EBTNodeResult::Type SchedulePathfindingRequest(UBehaviorTreeComponent& OwnerComp, uint8* NodeMemory, bool isMovingTargetRepath = false);	
 
 	void AbortPathfindingRequest(UBehaviorTreeComponent& OwnerComp, uint8* NodeMemory);
 
 	void TickPathNavigation(UBehaviorTreeComponent& OwnerComp, FBT_FlyToTarget* MyMemory, float DeltaSeconds);
+
+	bool CheckTargetMoved(FBT_FlyToTarget* MyMemory);
 
 	virtual void OnTaskFinished(UBehaviorTreeComponent& OwnerComp, uint8* NodeMemory, EBTNodeResult::Type TaskResult) override;
 

@@ -33,11 +33,12 @@ UBTTask_FlyTo::UBTTask_FlyTo(const FObjectInitializer& ObjectInitializer)
 	NodeName = "Fly To";
 	bNotifyTick = true;
 	
-	FlightLocationKey.AddVectorFilter(this,		    GET_MEMBER_NAME_CHECKED(UBTTask_FlyTo, FlightLocationKey));
-	FlightResultKey.AddBoolFilter(this,				GET_MEMBER_NAME_CHECKED(UBTTask_FlyTo, FlightResultKey));
+	FlightGoalKey.AddObjectFilter(this,             GET_MEMBER_NAME_CHECKED(UBTTask_FlyTo, FlightGoalKey), AActor::StaticClass());
+	FlightGoalKey.AddVectorFilter(this,             GET_MEMBER_NAME_CHECKED(UBTTask_FlyTo, FlightGoalKey));
+	FlightResultKey.AddBoolFilter(this,             GET_MEMBER_NAME_CHECKED(UBTTask_FlyTo, FlightResultKey));
 	KeyToFlipFlopWhenTaskExits.AddBoolFilter(this,  GET_MEMBER_NAME_CHECKED(UBTTask_FlyTo, KeyToFlipFlopWhenTaskExits));
 
-	FlightLocationKey.AllowNoneAsValue(true);
+	FlightGoalKey.AllowNoneAsValue(true);
 	FlightResultKey.AllowNoneAsValue(true);
 	KeyToFlipFlopWhenTaskExits.AllowNoneAsValue(true);
 }
@@ -50,7 +51,7 @@ void UBTTask_FlyTo::InitializeFromAsset(UBehaviorTree& Asset)
 	if (!blackboard)
 		return;
 	
-	FlightLocationKey.ResolveSelectedKey(*blackboard);
+	FlightGoalKey.ResolveSelectedKey(*blackboard);
 }
 
 EBTNodeResult::Type UBTTask_FlyTo::ExecuteTask(UBehaviorTreeComponent& OwnerComp, uint8* NodeMemory)
@@ -66,16 +67,16 @@ EBTNodeResult::Type UBTTask_FlyTo::ExecuteTask(UBehaviorTreeComponent& OwnerComp
 			if (myMemory->BBObserverDelegateHandle.IsValid())
 			{
 				UE_VLOG(OwnerComp.GetAIOwner(), LogBehaviorTree, Warning, TEXT("UBTTask_MoveTo::ExecuteTask \'%s\' Old BBObserverDelegateHandle is still valid! Removing old Observer."), *GetNodeName());
-				BlackboardComp->UnregisterObserver(FlightLocationKey.GetSelectedKeyID(), myMemory->BBObserverDelegateHandle);
+				BlackboardComp->UnregisterObserver(FlightGoalKey.GetSelectedKeyID(), myMemory->BBObserverDelegateHandle);
 			}
-			myMemory->BBObserverDelegateHandle = BlackboardComp->RegisterObserver(FlightLocationKey.GetSelectedKeyID(), this, FOnBlackboardChangeNotification::CreateUObject(this, &UBTTask_FlyTo::OnBlackboardValueChange));
+			myMemory->BBObserverDelegateHandle = BlackboardComp->RegisterObserver(FlightGoalKey.GetSelectedKeyID(), this, FOnBlackboardChangeNotification::CreateUObject(this, &UBTTask_FlyTo::OnBlackboardValueChange));
 		}
 	}
 
 	return NodeResult;
 }
 
-EBTNodeResult::Type UBTTask_FlyTo::SchedulePathfindingRequest(UBehaviorTreeComponent& OwnerComp, uint8* NodeMemory)
+EBTNodeResult::Type UBTTask_FlyTo::SchedulePathfindingRequest(UBehaviorTreeComponent& OwnerComp, uint8* NodeMemory,  bool isMovingTargetRepath)
 {
 	auto pawn        =  OwnerComp.GetAIOwner()->GetPawn();
 	auto myMemory    =  (FBT_FlyToTarget*)NodeMemory;
@@ -101,12 +102,12 @@ EBTNodeResult::Type UBTTask_FlyTo::SchedulePathfindingRequest(UBehaviorTreeCompo
 	}
 	
 	// Validate blackboard key data:
-	if(FlightLocationKey.SelectedKeyType != UBlackboardKeyType_Vector::StaticClass())
+	if(FlightGoalKey.SelectedKeyType != UBlackboardKeyType_Vector::StaticClass() && FlightGoalKey.SelectedKeyType != UBlackboardKeyType_Object::StaticClass())
 	{
-		UE_LOG(DoNNavigationLog, Log, TEXT("Invalid FlightLocationKey. Expected Vector type, found %s"), *(FlightLocationKey.SelectedKeyType ? FlightLocationKey.SelectedKeyType->GetName() : FString("?")));
+		UE_LOG(DoNNavigationLog, Log, TEXT("Invalid FlightGoalKey. Expected Vector or Actor Object type, found %s"), *(FlightGoalKey.SelectedKeyType ? FlightGoalKey.SelectedKeyType->GetName() : FString("?")));
 		return HandleTaskFailure(OwnerComp, NodeMemory, blackboard);
 	}
-
+	
 	// Prepare input:
 	myMemory->Reset();	
 	myMemory->Metadata.ActiveInstanceIdx = OwnerComp.GetActiveInstanceIdx();
@@ -114,9 +115,32 @@ EBTNodeResult::Type UBTTask_FlyTo::SchedulePathfindingRequest(UBehaviorTreeCompo
 	myMemory->QueryParams = QueryParams;
 	myMemory->QueryParams.CustomDelegatePayload = &myMemory->Metadata;
 	myMemory->bIsANavigator = pawn->GetClass()->ImplementsInterface(UDonNavigator::StaticClass());
+	myMemory->isMovingTargetRepath = isMovingTargetRepath;
 
-	FVector flightDestination = blackboard->GetValueAsVector(FlightLocationKey.SelectedKeyName);
-	myMemory->TargetLocation = flightDestination;
+	FVector flightDestination;
+	// Prepare location as Vector:
+	if (FlightGoalKey.SelectedKeyType == UBlackboardKeyType_Vector::StaticClass())
+	{
+		flightDestination = blackboard->GetValueAsVector(FlightGoalKey.SelectedKeyName);
+		myMemory->TargetLocation = flightDestination;
+	}
+	// Prepare location as Actor:
+	else
+	{
+		auto keyValue = blackboard->GetValueAsObject(FlightGoalKey.SelectedKeyName);
+		auto targetActor = Cast<AActor>(keyValue);
+		if (targetActor)
+		{
+			flightDestination = targetActor->GetActorLocation();
+			myMemory->TargetLocation = flightDestination;
+			myMemory->TargetActor = targetActor;
+		}
+		else
+		{
+			UE_LOG(DoNNavigationLog, Log, TEXT("Invalid FlightGoalKey tried to target an actor, but BB key %s was empty or not an actor"), *FlightGoalKey.SelectedKeyName.ToString());
+			return HandleTaskFailure(OwnerComp, NodeMemory, blackboard);
+		}
+	}
 
 	// Bind result notification delegate:
 	FDoNNavigationResultHandler resultHandler;
@@ -210,6 +234,11 @@ void UBTTask_FlyTo::Pathfinding_OnFinish(const FDoNNavigationQueryData& Data)
 		return;
 	}
 
+	// If we're a moving target repath, then skip the first index because the first index will generally just be 
+	//  from the pawn start to the closest nav voxel and may cause us to move backwards.
+	if (myMemory->isMovingTargetRepath && Data.PathSolutionOptimized.Num() >= 2)
+		myMemory->solutionTraversalIndex = 1;
+
 	// Inform pawn owner that we're about to start locomotion!
 	if (myMemory->bIsANavigator)
 	{
@@ -243,8 +272,18 @@ void UBTTask_FlyTo::TickTask(UBehaviorTreeComponent& OwnerComp, uint8* NodeMemor
 	APawn* pawn = OwnerComp.GetAIOwner()->GetPawn();
 	NavigationManager = UDonNavigationHelper::DonNavigationManagerForActor(pawn);	
 
+	// If I'm still waiting to get a path to my target, just return:
 	if (EDonNavigationQueryStatus::InProgress == myMemory->QueryResults.QueryStatus)
 		return;
+
+	// If my actor target has moved beyond the threshold, I should recalculate my path towards it:
+	if (this->CheckTargetMoved(myMemory))
+	{
+		auto ownerComp = myMemory->Metadata.OwnerComp.Get();
+		AbortPathfindingRequest(*ownerComp, (uint8*)myMemory);
+		SchedulePathfindingRequest(*ownerComp, (uint8*)myMemory, true);
+		return;
+	}
 
 	switch (myMemory->QueryResults.QueryStatus)
 	{
@@ -292,6 +331,12 @@ void UBTTask_FlyTo::TickTask(UBehaviorTreeComponent& OwnerComp, uint8* NodeMemor
 		if (!NavigationManager->HasTask(pawn))
 			HandleTaskFailureAndExit(OwnerComp, NodeMemory);
 	}
+}
+
+bool UBTTask_FlyTo::CheckTargetMoved(FBT_FlyToTarget* MyMemory)
+{
+	// If my target is an actor actor and has moved out of the path tolerance, I should recalculate a new path towards it:
+	return MyMemory->TargetActor != nullptr && bRecalcPathOnDestinationChanged && FVector::DistSquared(MyMemory->TargetLocation, MyMemory->TargetActor->GetActorLocation()) >= FMath::Square(this->RecalculatePathTolerance);
 }
 
 void UBTTask_FlyTo::TickPathNavigation(UBehaviorTreeComponent& OwnerComp, FBT_FlyToTarget* MyMemory, float DeltaSeconds)
@@ -389,7 +434,7 @@ void UBTTask_FlyTo::OnTaskFinished(UBehaviorTreeComponent& OwnerComp, uint8* Nod
 
 	UBlackboardComponent* BlackboardComp = OwnerComp.GetBlackboardComponent();
 	if (ensure(BlackboardComp) && myMemory->BBObserverDelegateHandle.IsValid())
-		BlackboardComp->UnregisterObserver(FlightLocationKey.GetSelectedKeyID(), myMemory->BBObserverDelegateHandle);
+		BlackboardComp->UnregisterObserver(FlightGoalKey.GetSelectedKeyID(), myMemory->BBObserverDelegateHandle);
 
 	myMemory->BBObserverDelegateHandle.Reset();
 
@@ -458,9 +503,10 @@ EBlackboardNotificationResult UBTTask_FlyTo::OnBlackboardValueChange(const UBlac
 		return EBlackboardNotificationResult::RemoveObserver;
 	}
 
-	if (myMemory != nullptr)
+	// If we're not pursuing an actor and the value of our our target location key changed, mark our location as having changed:
+	if (myMemory != nullptr && myMemory->TargetActor == nullptr)
 	{
-		const FVector flightDestination = Blackboard.GetValueAsVector(FlightLocationKey.SelectedKeyName);
+		const FVector flightDestination = Blackboard.GetValueAsVector(FlightGoalKey.SelectedKeyName);
 
 		if (!myMemory->TargetLocation.Equals(flightDestination, RecalculatePathTolerance))
 			myMemory->bTargetLocationChanged = true;
@@ -489,7 +535,7 @@ FString UBTTask_FlyTo::GetStaticDescription() const
 {
 	FString ReturnDesc = Super::GetStaticDescription();
 	
-	ReturnDesc += FString::Printf(TEXT("\n%s: %s \n"), *GET_MEMBER_NAME_CHECKED(UBTTask_FlyTo, FlightLocationKey).ToString(), *FlightLocationKey.SelectedKeyName.ToString());
+	ReturnDesc += FString::Printf(TEXT("\n%s: %s \n"), *GET_MEMBER_NAME_CHECKED(UBTTask_FlyTo, FlightGoalKey).ToString(), *FlightGoalKey.SelectedKeyName.ToString());
 	ReturnDesc += FString("\nDebug Visualization:");
 	ReturnDesc += FString::Printf(TEXT("Raw Path: %d \n"), DebugParams.VisualizeRawPath);
 	ReturnDesc += FString::Printf(TEXT("Optimized Path: %d \n"), DebugParams.VisualizeOptimizedPath);
@@ -524,13 +570,13 @@ bool UBTTask_FlyTo::TeleportAndExit(UBehaviorTreeComponent& OwnerComp, bool bWra
 
 	if (blackboard)
 	{
-		FVector flightDestination = blackboard->GetValueAsVector(FlightLocationKey.SelectedKeyName);
+		FVector flightDestination = blackboard->GetValueAsVector(FlightGoalKey.SelectedKeyName);
 		NavigationManager = UDonNavigationHelper::DonNavigationManagerForActor(pawn);
 
 		bool bLocationValid = !NavigationManager->IsLocationBeneathLandscape(flightDestination);
 		if(bLocationValid)
 		{
-			FVector flightDestination = blackboard->GetValueAsVector(FlightLocationKey.SelectedKeyName);
+			FVector flightDestination = blackboard->GetValueAsVector(FlightGoalKey.SelectedKeyName);
 			pawn->SetActorLocation(flightDestination, false);
 			GEngine->AddOnScreenDebugMessage(-1, 15.f, FColor::White, FString::Printf(TEXT("%s teleported, being unable to find pathfind aerially!"), pawn ? *pawn->GetName() : *FString("")));
 			bTeleportSuccess = true;
