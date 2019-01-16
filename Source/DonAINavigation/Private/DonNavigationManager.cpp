@@ -148,9 +148,8 @@ void ADonNavigationManager::ReceiveAsyncResults()
 	{
 		FDonNavigationQueryTask task;
 		CompletedNavigationTasks.Dequeue(task);
-		task.BroadcastResult();
-
 		ActiveNavigationTaskOwners.Remove(task.Data.Actor.Get());
+		task.BroadcastResult();
 
 #if DEBUG_DoNAI_THREADS
 		auto owner = task.Data.Actor.Get();
