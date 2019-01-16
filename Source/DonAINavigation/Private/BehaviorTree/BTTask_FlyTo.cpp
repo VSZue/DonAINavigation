@@ -309,7 +309,8 @@ void UBTTask_FlyTo::TickPathNavigation(UBehaviorTreeComponent& OwnerComp, FBT_Fl
 		return;
 	}
 	
-	FVector flightDirection = queryResults.PathSolutionOptimized[MyMemory->solutionTraversalIndex] - pawn->GetActorLocation();
+	FVector deltaToNextNode = queryResults.PathSolutionOptimized[MyMemory->solutionTraversalIndex] - pawn->GetActorLocation();
+	FVector nextNodeDirection = deltaToNextNode.GetSafeNormal();
 
 	//auto navigator = Cast<IDonNavigator>(pawn);
 
@@ -317,18 +318,18 @@ void UBTTask_FlyTo::TickPathNavigation(UBehaviorTreeComponent& OwnerComp, FBT_Fl
 	if (MyMemory->bIsANavigator)
 	{
 		// Customized movement handling for advanced users:
-		IDonNavigator::Execute_AddMovementInputCustom(pawn, flightDirection, 1.f);
+		IDonNavigator::Execute_AddMovementInputCustom(pawn, nextNodeDirection, 1.f);
 	}
 	else
 	{
 		// Default movement (handled by Pawn or Character class)
-		pawn->AddMovementInput(flightDirection, 1.f);
+		pawn->AddMovementInput(nextNodeDirection, 1.f);
 	}
 
 	//UE_LOG(DoNNavigationLog, Verbose, TEXT("Segment %d Distance: %f"), MyMemory->solutionTraversalIndex, flightDirection.Size());
 
 	// Reached next segment:
-	if (flightDirection.Size() <= MinimumProximityRequired)
+	if (deltaToNextNode.Size() <= MinimumProximityRequired)
 	{
 		// Goal reached?
 		if (MyMemory->solutionTraversalIndex == queryResults.PathSolutionOptimized.Num() - 1)
