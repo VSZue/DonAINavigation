@@ -998,17 +998,20 @@ public:
 		return VolumeAtSafe(x, y, z);
 	}
 
-	/* Clamps a vector to the navigation bounds as defined by the grid configuration of the navigation object you've placed in the map*/
+	/** Clamps a vector within the navigation bounds, as defined by the grid configuration of the navigation object you've placed in the map,
+	 *   brought in by a margin of InnerMarginOffset when clamping downward to prevent rounding errors */
 	UFUNCTION(BlueprintPure, Category = "DoN Navigation")
-	FVector ClampLocationToNavigableWorld(FVector DesiredLocation)
+	FVector ClampLocationToNavigableWorld(FVector DesiredLocation, float InnerMarginOffset = 0.001f)
 	{
 		if (bIsUnbound)
 			return DesiredLocation;
 
 		FVector origin = GetActorLocation();
-		float xClamped = FMath::Clamp(DesiredLocation.X, origin.X, origin.X + XGridSize * VoxelSize);
-		float yClamped = FMath::Clamp(DesiredLocation.Y, origin.Y, origin.Y + YGridSize * VoxelSize);
-		float zClamped = FMath::Clamp(DesiredLocation.Z, origin.Z, origin.Z + ZGridSize * VoxelSize);
+		// When clamping down, bring the vector in by an extra InnerMarginOffset cm. Necessary because VolumeIdAt does a float-to-int rounding, and thus clamping
+		//  to a max world dimension would otherwise round to an invalid index (e.g. rounding 100.5 to invalid index 100 instead of 99 in a 100-voxel world)
+		float xClamped = FMath::Clamp(DesiredLocation.X, origin.X, origin.X + XGridSize * VoxelSize - InnerMarginOffset);
+		float yClamped = FMath::Clamp(DesiredLocation.Y, origin.Y, origin.Y + YGridSize * VoxelSize - InnerMarginOffset);
+		float zClamped = FMath::Clamp(DesiredLocation.Z, origin.Z, origin.Z + ZGridSize * VoxelSize - InnerMarginOffset);
 
 		return FVector(xClamped, yClamped, zClamped);
 	}
