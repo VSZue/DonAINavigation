@@ -18,7 +18,7 @@
 #include "Multithreading/DonDrawDebugThreadSafe.h"
 #include "CollisionQueryParams.h"
 #include "WorldCollision.h"
-#include "Queue.h"
+#include "Containers/Queue.h"
 #include "Components/BoxComponent.h"
 
 #include "DonNavigationManager.generated.h"
