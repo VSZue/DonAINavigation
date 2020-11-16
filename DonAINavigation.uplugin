@@ -3,7 +3,7 @@
 	"FriendlyName" : "DoN AI Navigation Plugin (Flying AI /3D Aerial Pathfinding)",
 	"Version" : 10,
 	"VersionName" : "1.10",
-	"EngineVersion" : "4.19.0",
+	"EngineVersion" : "4.25.0",
 	"Category" : "AI Navigation",
 	"CreatedBy" : "Venugopalan Sreedharan",
 	"CreatedByURL" : "http://www.drunkonnectar.com/3d-pathfinding-ue4/",
