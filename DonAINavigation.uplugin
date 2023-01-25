@@ -1,17 +1,13 @@
 {
 	"FileVersion" : 3,	
 	"FriendlyName" : "DoN AI Navigation Plugin (Flying AI /3D Aerial Pathfinding)",
-	"Version" : 10,
-	"VersionName" : "1.10",
-	"EngineVersion" : "4.19.0",
+	"Version" : 11,
+	"VersionName" : "1.12",
+	"EngineVersion" : "4.27.0",
 	"Category" : "AI Navigation",
 	"CreatedBy" : "Venugopalan Sreedharan",
 	"CreatedByURL" : "http://www.drunkonnectar.com/3d-pathfinding-ue4/",
-	"Description" : "This plugin is a solution for 3D pathfinding for flying creatures. 
-	
-	It uses voxel based navigation, supports dynamic collision updates and comes with a behavior tree task 'Fly to' which you may directly use in your behavior trees.
-	
-	Also provided is an API with pathfinding functions for custom navigation queries",	
+	"Description" : "This plugin is a solution for 3D pathfinding for flying creatures. It uses voxel based navigation, supports dynamic collision updates and comes with a behavior tree task 'Fly to' which you may directly use in your behavior trees. Also provided is an API with pathfinding functions for custom navigation queries",
 	"MarketplaceURL" : "com.epicgames.launcher://ue/marketplace/content/81b4bd085c8c41508edfeb160b6ddf62",
 	"SupportURL" : "https://forums.unrealengine.com/showthread.php?102933-DoN-s-3D-Pathfinding-Flying-AI-system-(with-full-source!)/",
 	"DocsURL" : "https://www.youtube.com/watch?v=6Tr_K551zvI",
@@ -26,7 +22,6 @@
 			"WhitelistPlatforms" :
 			[
 				"Win64",
-				"Win32",
 				"Linux"
 			]
 		}

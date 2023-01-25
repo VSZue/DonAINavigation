@@ -148,9 +148,8 @@ void ADonNavigationManager::ReceiveAsyncResults()
 	{
 		FDonNavigationQueryTask task;
 		CompletedNavigationTasks.Dequeue(task);
-		task.BroadcastResult();
-
 		ActiveNavigationTaskOwners.Remove(task.Data.Actor.Get());
+		task.BroadcastResult();
 
 #if DEBUG_DoNAI_THREADS
 		auto owner = task.Data.Actor.Get();
@@ -284,7 +283,7 @@ void ADonNavigationManager::OnConstruction(const FTransform& Transform)
 #if WITH_EDITOR
 void ADonNavigationManager::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent)
 {	
-	UProperty* PropertyThatChanged = PropertyChangedEvent.Property;
+	FProperty* PropertyThatChanged = PropertyChangedEvent.Property;
 	FName PropertyName = PropertyThatChanged != NULL ? PropertyThatChanged->GetFName() : NAME_None;
 	
 	if (PropertyName == GET_MEMBER_NAME_CHECKED(ADonNavigationManager, bDisplayWorldBoundary))
@@ -1951,10 +1950,10 @@ bool ADonNavigationManager::FindPathSolution_StressTesting(AActor* Actor, FVecto
 	// Input Validations - I
 	if (!Actor || !CollisionComponent)
 	{
-		FString actorLog               =  Actor ? *Actor->GetName() : *FString("Invalid");
-		FString collisionComponentLog  =  CollisionComponent ? *CollisionComponent->GetName() : *FString("Invalid");
+		FString actorLog = Actor ? *Actor->GetName() : *FString("Invalid");
+		FString collisionComponentLog = CollisionComponent ? *CollisionComponent->GetName() : *FString("Invalid");
 		UE_LOG(DoNNavigationLog, Error, TEXT("%s"), *FString::Printf(TEXT("Invalid input parameters received. Actor: %s CollisionComponent: %s"), *actorLog, *collisionComponentLog));
-			
+
 		return false;
 	}
 
@@ -1977,39 +1976,62 @@ bool ADonNavigationManager::FindPathSolution_StressTesting(AActor* Actor, FVecto
 	// Input Visualization - I
 	if (DebugParams.DrawDebugVolumes)
 	{
-		DrawDebugPoint_Safe(GetWorld(), Origin,      20.f, FColor::White, true, -1.f);
+		DrawDebugPoint_Safe(GetWorld(), Origin, 20.f, FColor::White, true, -1.f);
 		DrawDebugPoint_Safe(GetWorld(), Destination, 20.f, FColor::Green, true, -1.f);
 	}
 
 	uint64 timerVolumeResolution = DoNNavigation::Debug_GetTimer();
 
-	// Resolve origin and destination volumes
-	auto originVolume      = ResolveVolume(Origin,      CollisionComponent, QueryParams.bFlexibleOriginGoal, QueryParams.CollisionShapeInflation);
-	auto destinationVolume = ResolveVolume(Destination, CollisionComponent, QueryParams.bFlexibleOriginGoal, QueryParams.CollisionShapeInflation);
+	FDonNavigationVoxel* originVolume = NULL;
+	FDonNavigationVoxel* destinationVolume = NULL;
 
-	DoNNavigation::Debug_StopTimer(timerVolumeResolution);	
-	UE_LOG(DoNNavigationLog, Verbose, TEXT("%s"), *FString::Printf(TEXT("Time spent resolving origin and destination volumes - %f seconds"), timerVolumeResolution / 1000.0));	
+	FVector resolvedOriginCenter = VolumeOriginAt(Origin);
+	FVector resolvedDestinationCenter = VolumeOriginAt(Destination);
+
+	bool bResolvedOrigin = false;
+	bool bResolvedDestination = false;
+
+	if (!bIsUnbound)
+	{
+		// Resolve origin and destination volumes
+		originVolume = ResolveVolume(Origin, CollisionComponent, QueryParams.bFlexibleOriginGoal, QueryParams.CollisionShapeInflation);
+		destinationVolume = ResolveVolume(Destination, CollisionComponent, QueryParams.bFlexibleOriginGoal, QueryParams.CollisionShapeInflation);
+
+		// Input Visualization - II
+		if (DebugParams.DrawDebugVolumes)
+		{
+			if (originVolume)
+				DrawDebugVoxel_Safe(GetWorld(), originVolume->Location, NavVolumeExtent(), FColor::White, false, 0.13f, 0, DebugVoxelsLineThickness);
+
+			if (destinationVolume)
+				DrawDebugVoxel_Safe(GetWorld(), destinationVolume->Location, NavVolumeExtent(), FColor::Green, false, 0.13f, 0, DebugVoxelsLineThickness);
+		}
+	}
+	else
+	{
+		bResolvedOrigin = ResolveVector(Origin, resolvedOriginCenter, CollisionComponent, QueryParams.bFlexibleOriginGoal, QueryParams.CollisionShapeInflation);
+		bResolvedDestination = ResolveVector(Destination, resolvedDestinationCenter, CollisionComponent, QueryParams.bFlexibleOriginGoal, QueryParams.CollisionShapeInflation);
+	}
 
 	// Input Validations - II
-	if (!originVolume || !destinationVolume)
+	if ((!bIsUnbound && (!originVolume || !destinationVolume)) || (bIsUnbound && (!bResolvedOrigin || !bResolvedDestination)))
 	{
 		InvalidVolumeErrorLog(originVolume, destinationVolume, Origin, Destination);
 
 		return false;
 	}
-	else
+
+	// Flexible Origin adaptation:
+	if (Origin != Actor->GetActorLocation())
 	{
-		if (Origin != Actor->GetActorLocation())
-		{
-			UE_LOG(DoNNavigationLog, Warning, TEXT("Forcibly shifting %s's pathfinding origin to new origin %s for viable pathfinding. (Can be disabled in QueryParams)"), *Actor->GetName());
-			 Actor->SetActorLocation(Origin, false); // New design: We no longer teleport the pawn. If all our calculations have gone right the pawn should be free to travel to the new origin.
-		}
+		UE_LOG(DoNNavigationLog, Warning, TEXT("Forcibly moving %s to new origin for viable pathfinding. (Can be disabled in QueryParams)"), *Actor->GetName());
+		Actor->SetActorLocation(Origin, false);
 	}
 
 	// Input Visualization - II
 	if (DebugParams.DrawDebugVolumes)
 	{
-		DrawDebugVoxel_Safe(GetWorld(), originVolume->Location,      NavVolumeExtent(), FColor::White, false, 0.13f, 0, DebugVoxelsLineThickness);
+		DrawDebugVoxel_Safe(GetWorld(), originVolume->Location, NavVolumeExtent(), FColor::White, false, 0.13f, 0, DebugVoxelsLineThickness);
 		DrawDebugVoxel_Safe(GetWorld(), destinationVolume->Location, NavVolumeExtent(), FColor::Green, false, 0.13f, 0, DebugVoxelsLineThickness);
 	}
 
@@ -2019,31 +2041,22 @@ bool ADonNavigationManager::FindPathSolution_StressTesting(AActor* Actor, FVecto
 	auto voxelCollisionProfile = GetVoxelCollisionProfileFromMesh(FDonMeshIdentifier(CollisionComponent), bResultIsValid, VoxelCollisionProfileCache_GameThread, bIgnoreMeshOriginOccupancy);
 
 	uint64 timerPathfinding = DoNNavigation::Debug_GetTimer();
-	
+
 	FDonNavigationQueryTask synchronousTask = FDonNavigationQueryTask(
-		FDoNNavigationQueryData(Actor, CollisionComponent, Origin, Destination, QueryParams, DebugParams, originVolume, destinationVolume, originVolume->Location, destinationVolume->Location, voxelCollisionProfile),
+		FDoNNavigationQueryData(Actor, CollisionComponent, Origin, Destination, QueryParams, DebugParams, originVolume, destinationVolume, resolvedOriginCenter, resolvedDestinationCenter, voxelCollisionProfile),
 		FDoNNavigationResultHandler(),
 		FDonNavigationDynamicCollisionDelegate()
-		);
+	);
 
 	auto& data = synchronousTask.Data;
-
+	float timeSpend = 0;
 	// Core pathfinding algorithm
-	while (!data.Frontier.empty())
+	while (!data.bGoalFound && timeSpend <= QueryParams.QueryTimeout)
 	{
-		auto currentVolume = data.Frontier.get(); // the current volume is the "best neighbor" (highest priority) of the previous volume
-
-		if (currentVolume == destinationVolume)
-		{	
-			data.bGoalFound = true;
-			break;
-		}
-		
-		const auto& neighbors = FindOrSetupNeighborsForVolume(currentVolume);
-		for (auto neighbor : neighbors)
-		{	
-			ExpandFrontierTowardsTarget(synchronousTask, currentVolume, neighbor);
-		}
+		uint64 timeoutTimer = DoNNavigation::Debug_GetTimer();
+		TickNavigationSolver(synchronousTask);
+		DoNNavigation::Debug_StopTimer(timeoutTimer);
+		timeSpend += timeoutTimer / 1000.0;
 	}
 
 	// Goal validation:
@@ -2056,15 +2069,16 @@ bool ADonNavigationManager::FindPathSolution_StressTesting(AActor* Actor, FVecto
 	}
 
 	// Translate volume path solution to vector path solution:
-	TArray<FDonNavigationVoxel*> volumeSolution;
-	data.bGoalFound = PathSolutionFromVolumeTrajectoryMap(originVolume, destinationVolume, data.VolumeVsGoalTrajectoryMap, volumeSolution, PathSolutionRaw, Origin, Destination, DebugParams);
+
+	data.bGoalFound = PrepareSolution(synchronousTask);
 	if (!data.bGoalFound)
 	{
 		UE_LOG(DoNNavigationLog, Error, TEXT("%s"), *FString::Printf(TEXT("Goal not found among %d goal trajectory nodes"), data.VolumeVsGoalTrajectoryMap.Num()));
 
 		return false;
 	}
-
+	
+	PathSolutionRaw.Append(data.PathSolutionRaw);//synchronousTask.PathSolutionRaw.Num());
 	// Log time spent:
 	DoNNavigation::Debug_StopTimer(timerPathfinding);
 	FString calcTime1 = FString::Printf(TEXT("[DoN Navigation]Time spent calculating best path volumes - %f seconds"), timerPathfinding / 1000.0);

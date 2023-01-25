@@ -19,7 +19,7 @@
 #include <vector>
 
 #if PLATFORM_WINDOWS
-#include "AllowWindowsPlatformTypes.h"
+#include "Windows/AllowWindowsPlatformTypes.h"
 #elif PLATFORM_XBOXONE
 #include "XboxOneAllowPlatformTypes.h"
 #endif
@@ -95,5 +95,5 @@ namespace DoNNavigation
 }
 
 #if PLATFORM_WINDOWS
- #include "HideWindowsPlatformTypes.h"
+ #include "Windows/HideWindowsPlatformTypes.h"
  #endif
